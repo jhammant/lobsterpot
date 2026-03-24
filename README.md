@@ -28,16 +28,39 @@ You (Discord/Chat) ←→ OpenClaw (Echo) ←→ SSH ←→ tmux ←→ Coding A
 
 ## Supported Agents
 
-| Agent | Type | Cost | Best For |
-|-------|------|------|----------|
-| Claude Code | Cloud CLI | $$$ | Complex architecture, refactoring |
-| Codex | Cloud CLI | $$ | Broad coding tasks |
-| Aider + local model | Local | Free | Iteration, simple changes |
-| Aider + OpenRouter | Cloud API | Free* | Medium complexity, bulk work |
-| MLX local models | Local | Free | Fast iteration on Apple Silicon |
-| Gemini CLI | Cloud CLI | $$ | Research, analysis |
+### Premium (best quality)
 
-\* OpenRouter free tier models
+| Agent | Command | Cost | Best For |
+|-------|---------|------|----------|
+| **Claude Code** | `claude` | $$$ | Complex architecture, refactoring, hard bugs |
+| **Codex** | `codex` | $$ | Broad coding tasks, multi-file changes |
+| **Kiro** | `kiro` | $$ | Spec-driven development, docs + tests generation (Amazon Bedrock) |
+| **Gemini CLI** | `gemini` | $$ | Research, analysis, large context windows |
+| **Amp** | `amp` | $$ | Codebase-aware changes (Sourcegraph) |
+
+### Free / Local
+
+| Agent | Command | Cost | Best For |
+|-------|---------|------|----------|
+| **Aider + local** | `aider --model ollama/qwen2.5-coder:32b` | Free | Fast iteration, simple-medium changes |
+| **Aider + OpenRouter** | `aider --model openrouter/...` | Free* | Medium complexity, bulk work |
+| **Goose** | `goose` | Free | Extensible, open source (Block/Square) |
+| **OpenCode** | `opencode` | Free | Lightweight open source CLI agent |
+
+\* OpenRouter free tier models (120B+ params, no rate limits)
+
+### Smart Routing (two-phase)
+
+LobsterPot automatically routes tasks to save money:
+
+```
+Simple task  → Local model only                    $0.00
+Medium task  → Local model builds → Claude reviews  ~$0.05
+Complex task → Local model builds → Claude refines  ~$0.30
+Architecture → Claude Code direct                   ~$1-5
+```
+
+The cheap model does 80% of the work. The expensive model is the quality gate.
 
 ## Quick Start
 

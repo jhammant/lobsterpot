@@ -21,18 +21,22 @@ export interface RouterConfig {
   localAvailable: boolean;        // Is Ollama running with a model?
   openrouterAvailable: boolean;   // Do we have OpenRouter free tier?
   claudeAvailable: boolean;       // Claude Code available?
+  kiroAvailable: boolean;         // Amazon Kiro CLI available?
   preferLocal: boolean;           // Default: true
   autoReview: boolean;            // Auto-trigger review phase? Default: true
   reviewThreshold: TaskComplexity; // Min complexity for review. Default: 'medium'
+  reviewAgent: string;            // Which agent reviews. Default: 'claude-code'
 }
 
 const DEFAULT_CONFIG: RouterConfig = {
   localAvailable: true,
   openrouterAvailable: true,
   claudeAvailable: true,
+  kiroAvailable: false,
   preferLocal: true,
   autoReview: true,
   reviewThreshold: 'medium',
+  reviewAgent: 'claude-code',
 };
 
 /**
