@@ -102,7 +102,7 @@ Only message user if: error, significant milestone, or stuck and needs human dec
 
 ```
 User: "Start my-project on dev-box, focus on speed optimisation"
-Echo: 
+Assistant: 
   1. SSH to dev-box
   2. tmux new-session -d -s lp-my-project -c ~/dev/my-project
   3. Start claude-code in the session
@@ -111,13 +111,13 @@ Echo:
   6. Report: "🦞 Pot 'my-project' running on dev-box with Claude Code"
 
 User: "How's my-project going?"
-Echo:
+Assistant:
   1. SSH capture-pane lp-my-project
   2. Analyse output
   3. Report status with key findings
 
 User: "Tell it to focus on KV cache"
-Echo:
+Assistant:
   1. tmux send-keys "Focus on KV cache optimisation..."
   2. Confirm: "Sent direction to my-project"
 ```

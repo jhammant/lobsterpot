@@ -7,14 +7,14 @@ LobsterPot lets an AI assistant (like [OpenClaw](https://github.com/openclaw/ope
 ## The Pattern
 
 ```
-You (Discord/Chat) ←→ OpenClaw (Echo) ←→ SSH ←→ tmux ←→ Coding Agent ←→ Your Code
+You (Discord/Chat) ←→ AI Assistant ←→ SSH ←→ tmux ←→ Coding Agent ←→ Your Code
                          ↕                                    ↕
                     Status Updates                     Auto-Recovery
-                    Discord Channels                   Progress Logs
+                    Chat Channels                      Progress Logs
 ```
 
 **You say:** "Build me a REST API for user auth"  
-**LobsterPot:** SSHs to your Mac, opens Claude Code in tmux, sends the task, monitors progress, reports back, nudges when stuck, recovers from crashes.
+**LobsterPot:** SSHs to your machine, opens Claude Code in tmux, sends the task, monitors progress, reports back, nudges when stuck, recovers from crashes.
 
 ## Features
 
@@ -70,8 +70,8 @@ The cheap model does 80% of the work. The expensive model is the quality gate.
 # Install the skill
 cp -r lobsterpot/skill ~/.openclaw/workspace/skills/lobsterpot
 
-# Tell Echo:
-"Start a lobsterpot session on dev-box — my-project repo, focus on speed optimisation"
+# Tell your assistant:
+"Start a lobsterpot session on my-server — my-project repo, focus on speed optimisation"
 ```
 
 ### As a CLI (on the host machine)
@@ -136,7 +136,7 @@ CREATE → LOADING → RUNNING → (STUCK?) → NUDGE → RUNNING → DONE
 # ~/.lobsterpot/config.yaml
 machines:
   dev-box:
-    host: dev-box  # SSH config name or IP
+    host: 192.168.1.100  # SSH config name or IP
     user: deploy
     default_agent: claude-code
     models_dir: ~/models  # For local models
@@ -187,7 +187,7 @@ You can set this per-pot or let LobsterPot auto-route based on task complexity.
 
 ## OpenClaw Integration
 
-LobsterPot works as an OpenClaw skill. Echo can:
+LobsterPot works as an OpenClaw skill. Your assistant can:
 
 - Create/destroy pots on command
 - Monitor all active pots
@@ -197,7 +197,7 @@ LobsterPot works as an OpenClaw skill. Echo can:
 
 ```
 You: "Spin up a pot for my-project on dev-box, use aider with the free OpenRouter model"
-Echo: Creates tmux session, starts aider, sends task, monitors, reports back
+Assistant: Creates tmux session, starts aider, sends task, monitors, reports back
 ```
 
 ## Development
