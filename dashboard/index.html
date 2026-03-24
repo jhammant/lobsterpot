@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🦞 LobsterPot</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif;
+    background: #0a0a0a;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 12px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0 16px;
+    border-bottom: 1px solid #222;
+    margin-bottom: 16px;
+  }
+  .header h1 { font-size: 20px; }
+  .header .updated { font-size: 11px; color: #666; }
+  .header .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .status-dot.live { background: #4ade80; animation: pulse 2s infinite; }
+  .status-dot.stale { background: #f59e0b; }
+  .status-dot.dead { background: #ef4444; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  .pot-card {
+    background: #141414;
+    border: 1px solid #222;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .pot-card.running { border-left: 3px solid #4ade80; }
+  .pot-card.stuck { border-left: 3px solid #f59e0b; }
+  .pot-card.error { border-left: 3px solid #ef4444; }
+  .pot-card.done { border-left: 3px solid #60a5fa; }
+
+  .pot-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .pot-name { font-size: 16px; font-weight: 600; }
+  .pot-state {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .pot-state.running { background: #052e16; color: #4ade80; }
+  .pot-state.stuck { background: #451a03; color: #f59e0b; }
+  .pot-state.error { background: #450a0a; color: #ef4444; }
+  .pot-state.done { background: #0c1929; color: #60a5fa; }
+
+  .pot-meta {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 12px;
+  }
+  .pot-meta span { margin-right: 12px; }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .metric {
+    background: #1a1a1a;
+    border-radius: 8px;
+    padding: 8px;
+    text-align: center;
+  }
+  .metric .value { font-size: 18px; font-weight: 700; color: #fff; }
+  .metric .label { font-size: 10px; color: #666; text-transform: uppercase; margin-top: 2px; }
+
+  .progress-log {
+    max-height: 300px;
+    overflow-y: auto;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .progress-entry {
+    padding: 4px 0;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .progress-entry .time { color: #666; font-family: monospace; font-size: 11px; }
+  .progress-entry .icon { margin: 0 4px; }
+
+  .output-section {
+    margin-top: 12px;
+    background: #0d0d0d;
+    border-radius: 8px;
+    padding: 12px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    max-height: 200px;
+    overflow-y: auto;
+    color: #999;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .toggle-output {
+    display: inline-block;
+    font-size: 11px;
+    color: #666;
+    cursor: pointer;
+    margin-top: 8px;
+    padding: 4px 8px;
+    border: 1px solid #333;
+    border-radius: 6px;
+  }
+  .toggle-output:hover { color: #999; border-color: #555; }
+
+  .send-bar {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .send-bar input {
+    flex: 1;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #e0e0e0;
+    font-size: 14px;
+    outline: none;
+  }
+  .send-bar input:focus { border-color: #4ade80; }
+  .send-bar button {
+    background: #4ade80;
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .send-bar button:active { opacity: 0.8; }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #444;
+  }
+  .empty-state .emoji { font-size: 48px; margin-bottom: 12px; }
+
+  .refresh-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #222;
+    border: 1px solid #333;
+    color: #999;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  .refresh-btn:active { background: #333; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>🦞 LobsterPot</h1>
+    <div>
+      <span class="status-dot live" id="statusDot"></span>
+      <span class="updated" id="lastUpdate">Loading...</span>
+    </div>
+  </div>
+  <div id="pots"></div>
+  <button class="refresh-btn" onclick="loadData()">↻</button>
+
+<script>
+const DATA_URL = 'data.json';
+let data = null;
+
+async function loadData() {
+  try {
+    const res = await fetch(DATA_URL + '?t=' + Date.now());
+    data = await res.json();
+    render();
+  } catch (e) {
+    document.getElementById('pots').innerHTML = `
+      <div class="empty-state">
+        <div class="emoji">🦞</div>
+        <p>No data yet — waiting for first check-in</p>
+      </div>`;
+  }
+}
+
+function timeAgo(ts) {
+  const diff = Math.round((Date.now() - ts) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.round(diff/60)}m ago`;
+  return `${Math.round(diff/3600)}h ago`;
+}
+
+function duration(startTs) {
+  const mins = Math.round((Date.now() - startTs) / 60000);
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins/60)}h ${mins%60}m`;
+}
+
+function render() {
+  if (!data) return;
+
+  const dot = document.getElementById('statusDot');
+  const updated = document.getElementById('lastUpdate');
+  const age = Date.now() - data.updatedAt;
+  dot.className = 'status-dot ' + (age < 120000 ? 'live' : age < 600000 ? 'stale' : 'dead');
+  updated.textContent = timeAgo(data.updatedAt);
+
+  const container = document.getElementById('pots');
+  if (!data.pots || data.pots.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="emoji">🦞</div><p>No active pots</p></div>`;
+    return;
+  }
+
+  container.innerHTML = data.pots.map(pot => `
+    <div class="pot-card ${pot.state}">
+      <div class="pot-header">
+        <span class="pot-name">${pot.name}</span>
+        <span class="pot-state ${pot.state}">${pot.state}</span>
+      </div>
+      <div class="pot-meta">
+        <span>🤖 ${pot.agent}</span>
+        <span>💻 ${pot.machine}</span>
+        <span>⏱ ${duration(pot.startedAt)}</span>
+      </div>
+      ${pot.metrics ? `
+      <div class="metrics">
+        ${Object.entries(pot.metrics).map(([k,v]) => `
+          <div class="metric">
+            <div class="value">${v}</div>
+            <div class="label">${k}</div>
+          </div>
+        `).join('')}
+      </div>` : ''}
+      <div class="progress-log">
+        ${(pot.log || []).slice(-8).map(e => `
+          <div class="progress-entry">
+            <span class="time">${new Date(e.ts).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'})}</span>
+            <span class="icon">${e.icon || '🔄'}</span>
+            ${e.text}
+          </div>
+        `).join('')}
+      </div>
+      ${pot.lastOutput ? `
+        <div class="toggle-output" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+          Show terminal output ▾
+        </div>
+        <div class="output-section" style="display:none">${pot.lastOutput}</div>
+      ` : ''}
+    </div>
+  `).join('');
+}
+
+// Auto-refresh every 30s
+loadData();
+setInterval(loadData, 30000);
+</script>
+</body>
+</html>
