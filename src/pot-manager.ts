@@ -5,6 +5,31 @@ import {
   AgentConfig, DEFAULT_AGENTS, Milestone, PotError
 } from './types.js';
 
+export class SSHError extends Error {
+  constructor(
+    message: string,
+    public readonly machine: string,
+    public readonly cause?: string,
+  ) {
+    super(message);
+    this.name = 'SSHError';
+  }
+}
+
+export class TmuxError extends Error {
+  constructor(message: string, public readonly session?: string) {
+    super(message);
+    this.name = 'TmuxError';
+  }
+}
+
+export class AgentError extends Error {
+  constructor(message: string, public readonly agent: string) {
+    super(message);
+    this.name = 'AgentError';
+  }
+}
+
 export class PotManager {
   private pots: Map<string, Pot> = new Map();
   private config: LobsterPotConfig;
@@ -18,11 +43,27 @@ export class PotManager {
     const mc = this.config.machines[machine];
     if (!mc) throw new Error(`Unknown machine: ${machine}`);
     const keyArg = mc.key ? `-i ${mc.key}` : '';
-    const cmd = `ssh -o ConnectTimeout=5 ${keyArg} ${mc.user}@${mc.host} ${JSON.stringify(command)}`;
+    const cmd = `ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=accept-new ${keyArg} ${mc.user}@${mc.host} ${JSON.stringify(command)}`;
     try {
       return execSync(cmd, { timeout: timeoutS * 1000, encoding: 'utf-8' });
     } catch (e: any) {
-      return e.stdout || e.stderr || e.message;
+      const stderr = (e.stderr || e.message || '').toString();
+      // SSH connection failures
+      if (stderr.includes('Connection refused') || stderr.includes('Connection timed out') || stderr.includes('No route to host')) {
+        throw new SSHError(`Cannot connect to ${mc.host}: ${stderr.trim()}`, machine, stderr);
+      }
+      if (stderr.includes('Permission denied') || stderr.includes('Authentication failed')) {
+        throw new SSHError(`SSH authentication failed for ${mc.user}@${mc.host}. Check your key at ${mc.key || '(default)'}`, machine, stderr);
+      }
+      // Timeout from execSync
+      if (e.killed || stderr.includes('ETIMEDOUT')) {
+        throw new SSHError(`SSH command timed out after ${timeoutS}s on ${machine}`, machine, stderr);
+      }
+      // tmux not found
+      if (stderr.includes('tmux: not found') || stderr.includes('command not found: tmux')) {
+        throw new TmuxError(`tmux is not installed on ${machine}. Install it with: apt install tmux (or brew install tmux)`);
+      }
+      return e.stdout || stderr || e.message;
     }
   }
 
@@ -48,8 +89,20 @@ export class PotManager {
 
     this.pots.set(id, pot);
 
-    // Create tmux session and start agent
+    // Verify agent is available on the target machine
     const agentConfig = this.getAgentConfig(potConfig.agent);
+    const agentBinary = agentConfig.command.split(' ')[0];
+    const whichResult = this.ssh(potConfig.machine, `which ${agentBinary} 2>/dev/null || echo __NOT_FOUND__`, 10);
+    if (whichResult.includes('__NOT_FOUND__')) {
+      this.pots.delete(id);
+      throw new AgentError(
+        `Agent "${potConfig.agent}" (binary: ${agentBinary}) is not installed on machine "${potConfig.machine}". ` +
+        `Install it first, or choose a different agent with --agent.`,
+        potConfig.agent,
+      );
+    }
+
+    // Create tmux session and start agent
     const startCmd = [
       `export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"`,
       `tmux new-session -d -s ${tmuxSession} -c ${potConfig.repo}`,
@@ -57,7 +110,7 @@ export class PotManager {
       `tmux send-keys -t ${tmuxSession} '${agentConfig.command}' Enter`,
     ].join(' && ');
 
-    const result = this.ssh(potConfig.machine, startCmd, 15);
+    this.ssh(potConfig.machine, startCmd, 15);
     pot.state = 'loading';
     pot.lastActivity = Date.now();
 

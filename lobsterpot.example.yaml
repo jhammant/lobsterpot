@@ -1,0 +1,45 @@
+# LobsterPot configuration
+# Copy to lobsterpot.yaml, ~/.lobsterpot/config.yaml, or ~/.config/lobsterpot/config.yaml
+
+machines:
+  dev-box:
+    host: 192.168.1.100
+    user: dev
+    key: ~/.ssh/id_ed25519
+    defaultAgent: claude-code
+
+  gpu-server:
+    host: gpu.example.com
+    user: ubuntu
+    key: ~/.ssh/gpu_key
+    defaultAgent: aider-local
+    modelsDir: /home/ubuntu/.ollama/models
+
+# Agent overrides (defaults are built-in for claude-code, codex, kiro, gemini-cli,
+# aider-local, aider-openrouter, goose, amp, opencode)
+agents:
+  aider-local:
+    command: "aider --model ollama/qwen2.5-coder:32b"
+    type: interactive-tui
+    costTier: free
+    promptPatterns:
+      - '>\\s*$'
+    stuckPatterns:
+      - 'y/n'
+    errorPatterns:
+      - Error
+      - exception
+      - Traceback
+
+# Optional Discord integration for status updates
+channels:
+  discord:
+    guildId: "123456789012345678"
+    category: lobsterpot
+
+# Monitoring defaults (can be overridden per-pot)
+monitoring:
+  checkIntervalMs: 30000      # How often to check pot health
+  stuckThresholdS: 300         # Seconds of inactivity before "stuck"
+  autoNudge: true              # Auto-send nudge when agent is stuck
+  autoRecover: true            # Auto-restart on crash

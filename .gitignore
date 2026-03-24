@@ -1,1 +1,5 @@
-node_modules/\ndist/\n*.js.map
+node_modules/
+dist/
+*.js.map
+*.tgz
+.env

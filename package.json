@@ -2,14 +2,25 @@
   "name": "lobsterpot",
   "version": "0.1.0",
   "description": "Remote coding agent orchestrator — manage multiple AI coding sessions from chat",
+  "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "lobsterpot": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "!dist/__tests__",
+    "dashboard",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dev": "tsx src/cli.ts",
-    "tui": "tsx src/tui.ts"
+    "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
     "ai",
@@ -46,7 +57,8 @@
     "@types/ssh2": "^1.15.0",
     "@types/ws": "^8.5.10",
     "tsx": "^4.7.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.1"
   },
   "engines": {
     "node": ">=20"
