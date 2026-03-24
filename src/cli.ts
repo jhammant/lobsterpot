@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { PotManager } from './pot-manager.js';
+import { PotManager, SSHError, TmuxError, AgentError } from './pot-manager.js';
 import { LobsterPotConfig } from './types.js';
 import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import yaml from 'js-yaml';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function loadConfig(): LobsterPotConfig {
   const configPaths = [
@@ -33,6 +36,21 @@ function loadConfig(): LobsterPotConfig {
   };
 }
 
+function handleError(e: unknown): never {
+  if (e instanceof SSHError) {
+    console.error(`SSH error (${e.machine}): ${e.message}`);
+  } else if (e instanceof TmuxError) {
+    console.error(`tmux error: ${e.message}`);
+  } else if (e instanceof AgentError) {
+    console.error(`Agent error (${e.agent}): ${e.message}`);
+  } else if (e instanceof Error) {
+    console.error(`Error: ${e.message}`);
+  } else {
+    console.error('Unknown error', e);
+  }
+  process.exit(1);
+}
+
 const config = loadConfig();
 const manager = new PotManager(config);
 
@@ -54,20 +72,24 @@ program
   .option('--no-auto-nudge', 'Disable auto-nudge on stuck')
   .option('--no-auto-recover', 'Disable auto-recovery on crash')
   .action(async (opts) => {
-    const pot = await manager.create({
-      name: opts.name,
-      machine: opts.machine,
-      repo: opts.repo,
-      agent: opts.agent,
-      task: opts.task,
-      autoNudge: opts.autoNudge,
-      autoRecover: opts.autoRecover,
-    });
-    console.log(`🦞 Pot created: ${pot.id}`);
-    console.log(`   Machine: ${pot.config.machine}`);
-    console.log(`   Agent: ${pot.config.agent}`);
-    console.log(`   tmux: ${pot.tmuxSession}`);
-    console.log(`   State: ${pot.state}`);
+    try {
+      const pot = await manager.create({
+        name: opts.name,
+        machine: opts.machine,
+        repo: opts.repo,
+        agent: opts.agent,
+        task: opts.task,
+        autoNudge: opts.autoNudge,
+        autoRecover: opts.autoRecover,
+      });
+      console.log(`🦞 Pot created: ${pot.id}`);
+      console.log(`   Machine: ${pot.config.machine}`);
+      console.log(`   Agent: ${pot.config.agent}`);
+      console.log(`   tmux: ${pot.tmuxSession}`);
+      console.log(`   State: ${pot.state}`);
+    } catch (e) {
+      handleError(e);
+    }
   });
 
 program
@@ -132,6 +154,44 @@ program
   .action((potId) => {
     manager.kill(potId);
     console.log(`💀 Killed pot: ${potId}`);
+  });
+
+program
+  .command('serve')
+  .description('Start the API server and dashboard')
+  .option('-p, --port <port>', 'API port', '7450')
+  .action(async (opts) => {
+    const { createAPI } = await import('./api.js');
+    const express = await import('express');
+    const app = createAPI(manager, parseInt(opts.port));
+    // Serve the dashboard at /dashboard
+    const dashboardPath = join(__dirname, '..', 'dashboard');
+    if (existsSync(dashboardPath)) {
+      app.use('/dashboard', express.default.static(dashboardPath));
+      console.log(`📊 Dashboard: http://127.0.0.1:${opts.port}/dashboard`);
+    }
+  });
+
+program
+  .command('route <task>')
+  .description('Preview how a task would be routed (local-first smart routing)')
+  .action(async (task) => {
+    const { routeTask, classifyTask, planExecution } = await import('./router.js');
+    const complexity = classifyTask(task);
+    const decision = routeTask(task);
+    const plan = planExecution(task);
+    console.log(`🧠 Task complexity: ${complexity}`);
+    console.log(`🔨 Build agent: ${decision.buildAgent}`);
+    if (decision.reviewAgent) {
+      console.log(`👀 Review agent: ${decision.reviewAgent}`);
+    }
+    console.log(`💰 Estimated cost: ${decision.estimatedCost}`);
+    console.log(`💡 ${decision.reasoning}`);
+    console.log();
+    console.log(`📋 Phase 1: ${plan.phase1.agent} (${plan.phase1.estimatedTime})`);
+    if (plan.phase2) {
+      console.log(`📋 Phase 2: ${plan.phase2.agent} — review (${plan.phase2.estimatedTime})`);
+    }
   });
 
 program.parse();
