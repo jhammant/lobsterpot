@@ -1,4 +1,13 @@
-export type AgentType = 'claude-code' | 'codex' | 'aider' | 'gemini-cli' | 'custom';
+export type AgentType = 
+  | 'claude-code'     // Anthropic — best for complex architecture
+  | 'codex'           // OpenAI — broad coding tasks
+  | 'kiro'            // Amazon (Bedrock) — spec-driven, generates docs+tests
+  | 'gemini-cli'      // Google — research + analysis + coding
+  | 'aider'           // Open source — works with any LLM backend
+  | 'goose'           // Block/Square — open source, extensible
+  | 'amp'             // Sourcegraph — codebase-aware
+  | 'opencode'        // Open source CLI agent
+  | 'custom';
 export type CostTier = 'free' | 'low' | 'medium' | 'high';
 export type PotState = 'creating' | 'loading' | 'running' | 'stuck' | 'error' | 'recovering' | 'done' | 'killed';
 
@@ -78,6 +87,7 @@ export interface LobsterPotConfig {
 }
 
 export const DEFAULT_AGENTS: Record<string, AgentConfig> = {
+  // === PREMIUM (best quality, highest cost) ===
   'claude-code': {
     command: 'claude',
     type: 'interactive-tui',
@@ -94,6 +104,24 @@ export const DEFAULT_AGENTS: Record<string, AgentConfig> = {
     stuckPatterns: ['approve\\?', 'deny\\?'],
     errorPatterns: ['Error:', 'FATAL'],
   },
+  'kiro': {
+    command: 'kiro',
+    type: 'interactive-tui',
+    costTier: 'medium',
+    promptPatterns: ['❯\\s*$', '\\$\\s*$'],
+    stuckPatterns: ['confirm', 'proceed', 'y/n', 'approve'],
+    errorPatterns: ['Error:', 'FATAL', 'exception'],
+  },
+  'gemini-cli': {
+    command: 'gemini',
+    type: 'interactive-tui',
+    costTier: 'medium',
+    promptPatterns: ['❯\\s*$'],
+    stuckPatterns: [],
+    errorPatterns: ['Error:', 'FATAL'],
+  },
+
+  // === FREE (open source + local models) ===
   'aider-local': {
     command: 'aider --model ollama/qwen2.5-coder:32b',
     type: 'interactive-tui',
@@ -110,12 +138,28 @@ export const DEFAULT_AGENTS: Record<string, AgentConfig> = {
     stuckPatterns: ['y/n'],
     errorPatterns: ['Error', 'exception', 'Traceback'],
   },
-  'gemini-cli': {
-    command: 'gemini',
+  'goose': {
+    command: 'goose',
+    type: 'interactive-tui',
+    costTier: 'free',
+    promptPatterns: ['❯\\s*$', '>\\s*$'],
+    stuckPatterns: ['y/n', 'approve', 'confirm'],
+    errorPatterns: ['Error', 'panic', 'exception'],
+  },
+  'amp': {
+    command: 'amp',
     type: 'interactive-tui',
     costTier: 'medium',
     promptPatterns: ['❯\\s*$'],
-    stuckPatterns: [],
+    stuckPatterns: ['approve', 'confirm'],
     errorPatterns: ['Error:', 'FATAL'],
+  },
+  'opencode': {
+    command: 'opencode',
+    type: 'interactive-tui',
+    costTier: 'free',
+    promptPatterns: ['>\\s*$'],
+    stuckPatterns: ['y/n', 'confirm'],
+    errorPatterns: ['Error', 'exception'],
   },
 };
