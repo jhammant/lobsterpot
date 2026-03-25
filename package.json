@@ -12,6 +12,7 @@
     "dist",
     "!dist/__tests__",
     "dashboard",
+    "lobsterpot-daemon.example.yaml",
     "README.md",
     "LICENSE"
   ],

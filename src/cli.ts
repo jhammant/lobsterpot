@@ -2,11 +2,15 @@
 import { Command } from 'commander';
 import { PotManager, SSHError, TmuxError, AgentError } from './pot-manager.js';
 import { LobsterPotConfig } from './types.js';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, unlinkSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import yaml from 'js-yaml';
+import { spawn } from 'child_process';
+import { loadDaemonConfig, findDaemonConfigPath } from './daemon-config.js';
+import { ControlPlaneDaemon } from './control-plane.js';
+import { createControlPlaneApi } from './control-plane-api.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -58,7 +62,7 @@ const program = new Command();
 
 program
   .name('lobsterpot')
-  .description('🦞 Remote coding agent orchestrator')
+  .description('Remote coding agent orchestrator')
   .version('0.1.0');
 
 program
@@ -101,7 +105,7 @@ program
       console.log('No active pots');
       return;
     }
-    console.log('🦞 Active pots:\n');
+      console.log('🦞 Active pots:\n');
     for (const pot of pots) {
       const age = Math.round((Date.now() - pot.createdAt) / 60000);
       const errs = pot.errors.length;
@@ -191,6 +195,117 @@ program
     console.log(`📋 Phase 1: ${plan.phase1.agent} (${plan.phase1.estimatedTime})`);
     if (plan.phase2) {
       console.log(`📋 Phase 2: ${plan.phase2.agent} — review (${plan.phase2.estimatedTime})`);
+    }
+  });
+
+const daemon = program.command('daemon').description('Manage the host-local LobsterPot control plane');
+
+daemon
+  .command('start')
+  .description('Start the daemon in the background')
+  .option('-c, --config <path>', 'Path to lobsterpot-daemon.yaml')
+  .action(async (opts) => {
+    try {
+      const configPath = findDaemonConfigPath(opts.config);
+      const daemonConfig = loadDaemonConfig(configPath);
+      const pidFile = daemonConfig.pidFile;
+
+      if (existsSync(pidFile)) {
+        const existingPid = Number.parseInt(readFileSync(pidFile, 'utf-8').trim(), 10);
+        if (!Number.isNaN(existingPid)) {
+          try {
+            process.kill(existingPid, 0);
+            console.log(`Daemon already running with PID ${existingPid}`);
+            return;
+          } catch {
+            unlinkSync(pidFile);
+          }
+        }
+      }
+
+      const entryScript = fileURLToPath(import.meta.url);
+      const child = spawn(
+        process.execPath,
+        [...process.execArgv, entryScript, 'daemon', 'run', ...(configPath ? ['--config', configPath] : [])],
+        {
+          detached: true,
+          stdio: 'ignore',
+        },
+      );
+      child.unref();
+      console.log(`Daemon starting. PID file: ${pidFile}`);
+    } catch (e) {
+      handleError(e);
+    }
+  });
+
+daemon
+  .command('stop')
+  .description('Stop the background daemon')
+  .option('-c, --config <path>', 'Path to lobsterpot-daemon.yaml')
+  .action((opts) => {
+    try {
+      const daemonConfig = loadDaemonConfig(findDaemonConfigPath(opts.config));
+      if (!existsSync(daemonConfig.pidFile)) {
+        console.log('Daemon is not running');
+        return;
+      }
+
+      const pid = Number.parseInt(readFileSync(daemonConfig.pidFile, 'utf-8').trim(), 10);
+      if (Number.isNaN(pid)) {
+        unlinkSync(daemonConfig.pidFile);
+        console.log('Removed stale PID file');
+        return;
+      }
+
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ESRCH') {
+          unlinkSync(daemonConfig.pidFile);
+          console.log('Removed stale PID file');
+          return;
+        }
+        throw error;
+      }
+
+      console.log(`Stopped daemon process ${pid}`);
+    } catch (e) {
+      handleError(e);
+    }
+  });
+
+daemon
+  .command('run')
+  .description('Run the daemon in the foreground')
+  .option('-c, --config <path>', 'Path to lobsterpot-daemon.yaml')
+  .action(async (opts) => {
+    try {
+      const configPath = findDaemonConfigPath(opts.config);
+      const daemonConfig = loadDaemonConfig(configPath);
+      writeFileSync(daemonConfig.pidFile, `${process.pid}\n`, 'utf-8');
+
+      const controlPlane = new ControlPlaneDaemon(daemonConfig);
+      controlPlane.start();
+      const { server } = createControlPlaneApi(controlPlane, daemonConfig.port);
+
+      const shutdown = () => {
+        controlPlane.stop();
+        if (!server) {
+          if (existsSync(daemonConfig.pidFile)) unlinkSync(daemonConfig.pidFile);
+          process.exit(0);
+          return;
+        }
+        server.close(() => {
+          if (existsSync(daemonConfig.pidFile)) unlinkSync(daemonConfig.pidFile);
+          process.exit(0);
+        });
+      };
+
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
+    } catch (e) {
+      handleError(e);
     }
   });
 
