@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process';
 import { LocalTmuxBackend } from './daemon-types.js';
 
 function runTmux(args: string[]): string {
-  return execFileSync('tmux', args, {
+  return execFileSync(process.env.TMUX_PATH || 'tmux', args, {
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trimEnd();
