@@ -1,4 +1,5 @@
 export type AgentType = 
+  | 'opencode'        // Open source CLI agent — DEFAULT first-choice for local tasks
   | 'claude-code'     // Anthropic — best for complex architecture
   | 'codex'           // OpenAI — broad coding tasks
   | 'kiro'            // Amazon (Bedrock) — spec-driven, generates docs+tests
@@ -6,7 +7,6 @@ export type AgentType =
   | 'aider'           // Open source — works with any LLM backend
   | 'goose'           // Block/Square — open source, extensible
   | 'amp'             // Sourcegraph — codebase-aware
-  | 'opencode'        // Open source CLI agent
   | 'custom';
 export type CostTier = 'free' | 'low' | 'medium' | 'high';
 export type PotState = 'creating' | 'loading' | 'running' | 'stuck' | 'error' | 'recovering' | 'done' | 'killed';
@@ -52,6 +52,7 @@ export interface Pot {
   lastActivity: number;
   lastOutput: string;
   tokensEstimate?: number;
+  contextUsagePct?: number;
   milestones: Milestone[];
   errors: PotError[];
 }
@@ -87,14 +88,56 @@ export interface LobsterPotConfig {
 }
 
 export const DEFAULT_AGENTS: Record<string, AgentConfig> = {
-  // === PREMIUM (best quality, highest cost) ===
+  // === FREE (local/open source - FIRST CLASS) ===
+  'opencode': {
+    command: 'opencode',
+    type: 'interactive-tui',
+    costTier: 'free',
+    promptPatterns: ['>\\s*$'],
+    stuckPatterns: ['y/n', 'confirm', '\\[y/n\\]'],
+    errorPatterns: ['Error', 'exception', 'Traceback'],
+  },
+  'opencode-local': {
+    command: 'opencode --model ollama/qwen2.5-coder:32b',
+    type: 'interactive-tui',
+    costTier: 'free',
+    promptPatterns: ['>\\s*$'],
+    stuckPatterns: ['y/n', 'confirm', '\\[y/n\\]'],
+    errorPatterns: ['Error', 'exception', 'Traceback'],
+  },
+  'aider-local': {
+    command: 'aider --model ollama/qwen2.5-coder:32b',
+    type: 'interactive-tui',
+    costTier: 'free',
+    promptPatterns: ['>\\s*$'],
+    stuckPatterns: ['y/n'],
+    errorPatterns: ['Error', 'exception', 'Traceback'],
+  },
+  'aider-openrouter': {
+    command: 'aider --model openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+    type: 'interactive-tui',
+    costTier: 'free',
+    promptPatterns: ['>\\s*$'],
+    stuckPatterns: ['y/n'],
+    errorPatterns: ['Error', 'exception', 'Traceback'],
+  },
+  'goose': {
+    command: 'goose',
+    type: 'interactive-tui',
+    costTier: 'free',
+    promptPatterns: ['❯\\s*$', '>\\s*$'],
+    stuckPatterns: ['y/n', 'approve', 'confirm'],
+    errorPatterns: ['Error', 'panic', 'exception'],
+  },
+
+  // === PAID (premium quality) ===
   'claude-code': {
-    command: 'claude',
+    command: 'claude --dangerously-skip-permissions',
     type: 'interactive-tui',
     costTier: 'high',
-    promptPatterns: ['❯\\s*$', '\\$\\s*$'],
-    stuckPatterns: ['Yes.*No', 'proceed\\?', 'permission', 'y/n', 'Press.*to continue'],
-    errorPatterns: ['Error:', 'FATAL', 'panic', 'Segmentation fault', 'killed', 'OOM'],
+    promptPatterns: ['❯\\s*$'],
+    stuckPatterns: ['/compact', '/exit', 'y/n', 'confirm'],
+    errorPatterns: ['Error:', 'FATAL', 'Traceback'],
   },
   'codex': {
     command: 'codex',
@@ -120,32 +163,6 @@ export const DEFAULT_AGENTS: Record<string, AgentConfig> = {
     stuckPatterns: [],
     errorPatterns: ['Error:', 'FATAL'],
   },
-
-  // === FREE (open source + local models) ===
-  'aider-local': {
-    command: 'aider --model ollama/qwen2.5-coder:32b',
-    type: 'interactive-tui',
-    costTier: 'free',
-    promptPatterns: ['>\\s*$'],
-    stuckPatterns: ['y/n'],
-    errorPatterns: ['Error', 'exception', 'Traceback'],
-  },
-  'aider-openrouter': {
-    command: 'aider --model openrouter/nvidia/nemotron-3-super-120b-a12b:free',
-    type: 'interactive-tui',
-    costTier: 'free',
-    promptPatterns: ['>\\s*$'],
-    stuckPatterns: ['y/n'],
-    errorPatterns: ['Error', 'exception', 'Traceback'],
-  },
-  'goose': {
-    command: 'goose',
-    type: 'interactive-tui',
-    costTier: 'free',
-    promptPatterns: ['❯\\s*$', '>\\s*$'],
-    stuckPatterns: ['y/n', 'approve', 'confirm'],
-    errorPatterns: ['Error', 'panic', 'exception'],
-  },
   'amp': {
     command: 'amp',
     type: 'interactive-tui',
@@ -153,13 +170,5 @@ export const DEFAULT_AGENTS: Record<string, AgentConfig> = {
     promptPatterns: ['❯\\s*$'],
     stuckPatterns: ['approve', 'confirm'],
     errorPatterns: ['Error:', 'FATAL'],
-  },
-  'opencode': {
-    command: 'opencode',
-    type: 'interactive-tui',
-    costTier: 'free',
-    promptPatterns: ['>\\s*$'],
-    stuckPatterns: ['y/n', 'confirm'],
-    errorPatterns: ['Error', 'exception'],
   },
 };
