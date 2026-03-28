@@ -40,6 +40,7 @@ export interface PotConfig {
   autoNudge?: boolean;
   autoRecover?: boolean;
   maxRetries?: number;
+  worktree?: string;           // Git worktree path for isolation
 }
 
 export interface Pot {
@@ -84,6 +85,11 @@ export interface LobsterPotConfig {
     stuckThresholdS: number;
     autoNudge: boolean;
     autoRecover: boolean;
+  };
+  routing?: {
+    enabled: boolean;
+    preferLocal: boolean;
+    autoReview: boolean;
   };
 }
 

@@ -1,4 +1,3 @@
-import { execFileSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -21,7 +20,6 @@ import { CheapSmartLlmClient } from './cheap-llm.js';
 import { LocalTmuxSessionBackend } from './local-tmux.js';
 import { DockerSessionBackend } from './docker-backend.js';
 import { HttpWebhookClient } from './webhook-client.js';
-import { routeTask, planExecution, buildReviewPrompt, getEscalationAgent, buildHandoffPrompt } from './router.js';
 
 interface PotActionTimestamps {
   lastNudgeAt?: number;
@@ -48,9 +46,9 @@ export class ControlPlaneDaemon {
   constructor(
     private readonly config: LobsterPotDaemonConfig,
     deps: ControlPlaneDeps = {},
-  ) {
     const backendType = config.backend ?? "docker";
     this.tmux = deps.tmux ?? (backendType === "docker" ? new DockerSessionBackend("lp-") : new LocalTmuxSessionBackend());
+    this.tmux = deps.tmux ?? new LocalTmuxSessionBackend();
     this.llm = deps.llm ?? new CheapSmartLlmClient(config);
     this.webhook = deps.webhook ?? new HttpWebhookClient(config);
     this.now = deps.now ?? (() => Date.now());
@@ -133,29 +131,14 @@ export class ControlPlaneDaemon {
     const command = request.command ?? agentConfig.command;
     const now = this.now();
 
-    // Create git worktree for isolation
-    let repoPath = request.repoPath;
-    const worktreePath = `${request.repoPath}/.worktrees/lp-${id}`;
-    
-    try {
-      execFileSync('git', [
-        '-C', request.repoPath,
-        'worktree', 'add',
-        worktreePath, '-b', `lp-${id}`
-      ], { stdio: ['ignore', 'pipe', 'pipe'] });
-      repoPath = worktreePath;
-    } catch (error) {
-      console.warn(`Failed to create worktree for ${id}: ${error}`);
-    }
-
     this.ensureOpenCodeConfig(request.repoPath, request.agent);
-    this.tmux.createSession(session, repoPath, command);
+    this.tmux.createSession(session, request.repoPath, command);
 
     const pot: PotStatus = {
       id,
       session,
       agent: request.agent,
-      repoPath: repoPath,
+      repoPath: request.repoPath,
       state: 'starting',
       task: request.task,
       createdAt: now,
@@ -173,7 +156,7 @@ export class ControlPlaneDaemon {
     this.metadata.set(id, {
       id,
       session,
-      repoPath: repoPath,
+      repoPath: request.repoPath,
       agent: request.agent,
       command,
       task: request.task,
@@ -189,72 +172,6 @@ export class ControlPlaneDaemon {
     }, 4000);
 
     return pot;
-  }
-
-  async createPotWithRouting(request: CreateLocalPotRequest, agentOverride?: string): Promise<PotStatus> {
-    const routingEnabled = this.config.routing?.enabled ?? true;
-    
-    if (!routingEnabled || agentOverride) {
-      return this.createPot(request);
-    }
-
-    const task = request.task;
-    const decision = routeTask(task, {
-      localAvailable: !!this.config.agents,
-      preferLocal: this.config.routing?.preferLocal !== false,
-      autoReview: this.config.routing?.autoReview !== false,
-    });
-    
-    console.log(`Routing decision for "${task.substring(0, 50)}...":`);
-    console.log(`  Build agent: ${decision.buildAgent}`);
-    if (decision.reviewAgent) {
-      console.log(`  Review agent: ${decision.reviewAgent}`);
-    }
-    console.log(`  Reasoning: ${decision.reasoning}`);
-    
-    const newRequest = {
-      ...request,
-      agent: decision.buildAgent,
-    };
-    
-    const pot = await this.createPot(newRequest);
-    
-    if (decision.reviewAgent && this.config.routing?.autoReview !== false) {
-      const plan = planExecution(task, {
-        localAvailable: !!this.config.agents,
-        preferLocal: this.config.routing?.preferLocal !== false,
-        autoReview: true,
-      });
-      
-      if (plan.phase2) {
-        this.addReviewHandler(pot.id, plan.phase2.agent, plan.phase2.task);
-      }
-    }
-    
-    return pot;
-  }
-
-  private reviewHandlers = new Map<string, { agent: string; prompt: string }>();
-  
-  private addReviewHandler(potId: string, agent: string, reviewPrompt: string): void {
-    this.reviewHandlers.set(potId, { agent, prompt: reviewPrompt });
-  }
-
-  private async handleReview(potId: string): Promise<void> {
-    const handler = this.reviewHandlers.get(potId);
-    if (!handler) return;
-    
-    const pot = this.requirePot(potId);
-    console.log(`Starting review for pot ${potId} with agent ${handler.agent}`);
-    
-    const reviewRequest: CreateLocalPotRequest = {
-      id: pot.id + '-review',
-      repoPath: pot.repoPath,
-      agent: handler.agent,
-      task: handler.prompt.replace('{{PHASE1_OUTPUT}}', pot.lastOutput),
-    };
-    
-    await this.createPot(reviewRequest);
   }
 
   async nudgePot(id: string, prompt?: string): Promise<PotStatus> {
@@ -280,31 +197,6 @@ export class ControlPlaneDaemon {
 
   killPot(id: string): PotStatus {
     const pot = this.requirePot(id);
-    
-    // Clean up git worktree if it exists
-    const worktreePath = `${pot.repoPath}/.worktrees/lp-${id}`;
-    try {
-      execFileSync('git', [
-        '-C', pot.repoPath,
-        'worktree', 'remove', worktreePath
-      ], { stdio: ['ignore', 'pipe', 'pipe'] });
-      
-      // Check if branch exists before trying to delete it
-      const branches = execFileSync('git', [
-        '-C', pot.repoPath,
-        'branch', '--list', `lp-${id}`
-      ], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
-      
-      if (branches.trim()) {
-        execFileSync('git', [
-          '-C', pot.repoPath,
-          'branch', '-D', `lp-${id}`
-        ], { stdio: ['ignore', 'pipe', 'pipe'] });
-      }
-    } catch (error) {
-      // Non-fatal: worktree may not exist
-    }
-    
     if (this.tmux.hasSession(pot.session)) {
       this.tmux.killSession(pot.session);
     }
@@ -313,62 +205,6 @@ export class ControlPlaneDaemon {
     return pot;
   }
 
-  async escalatePot(id: string, meta: PotRuntimeMetadata, reason: string): Promise<void> {
-    const pot = this.requirePot(id);
-    
-    // Determine escalation target
-    const escalationAgent = getEscalationAgent(pot.agent);
-    if (!escalationAgent) {
-      console.log(`Cannot escalate ${id}: already at highest tier (${pot.agent})`);
-      return;
-    }
-    
-    console.log(`Escalating pot ${id} from ${pot.agent} to ${escalationAgent}: ${reason}`);
-    
-    // Capture context
-    const context = pot.lastOutput.slice(-3000);
-    const originalTask = meta.task || 'Continue the previous work';
-    
-    // Kill current session
-    if (this.tmux.hasSession(meta.session)) {
-      this.tmux.killSession(meta.session);
-    }
-    
-    // Update metadata
-    meta.agent = escalationAgent;
-    meta.command = resolveLocalAgent(escalationAgent, this.config).command;
-    
-    // Create new session with escalated agent
-    this.ensureOpenCodeConfig(meta.repoPath, meta.agent);
-    this.tmux.createSession(meta.session, meta.repoPath, meta.command);
-    
-    pot.state = 'escalating';
-    pot.agent = escalationAgent;
-    pot.escalations = (pot.escalations || 0) + 1;
-    pot.escalatedFrom = pot.agent;
-    
-    // Send handoff prompt after agent loads
-    const handoffPrompt = buildHandoffPrompt(originalTask, context, reason);
-    setTimeout(() => this.sendPrompt(id, handoffPrompt), 5000);
-    
-    // Webhook notification
-    await this.webhook.send('pot.escalated', pot, { 
-      from: meta.agent, 
-      to: escalationAgent, 
-      reason 
-    });
-  }
-
-  private getEscalationAgent(agent: string): string | null {
-    // Escalation chain: opencode → claude-code
-    if (agent === 'opencode') return 'claude-code';
-    // Already at highest tier
-    if (agent === 'claude-code') return null;
-    // Other agents can also escalate to claude-code
-    if (agent.includes('local') || agent.includes('aider')) return 'claude-code';
-    // Unknown agents can't be escalated
-    return null;
-  }
   private discoverSessions(): void {
     const sessions = this.tmux.listSessions().filter(session => session.startsWith('lp-'));
     for (const session of sessions) {
@@ -539,34 +375,6 @@ export class ControlPlaneDaemon {
     if ((inspection.crashed || nextState === 'error') && this.config.monitoring.autoRestart && this.canRestart(pot.id, now)) {
       await this.restartPot(pot.id, meta);
       nextState = 'restarting';
-    }
-
-    // Escalation logic
-    if ((nextState === 'stuck' || nextState === 'error') && inspection.stuck) {
-      const potForEscalation = pot;
-      if (potForEscalation.restarts >= 3) {
-        await this.escalatePot(pot.id, meta, `kept crashing (${potForEscalation.restarts} restarts)`);
-        pot.state = 'killed';
-        return;
-      }
-    }
-
-    if (inspection.blocked) {
-      const potForEscalation = pot;
-      if (now - potForEscalation.lastChangeAt > this.config.monitoring.stuckThresholdMs * 2) {
-        await this.escalatePot(pot.id, meta, `got stuck and made no progress for ${Math.round((now - potForEscalation.lastChangeAt)/60000)}min`);
-        pot.state = 'killed';
-        return;
-      }
-    }
-
-    if (inspection.compacted && inspection.contextUsagePct !== undefined) {
-      const potForEscalation = pot;
-      if (inspection.contextUsagePct >= 90) {
-        await this.escalatePot(pot.id, meta, `hit ${inspection.contextUsagePct}% context and was compacted`);
-        pot.state = 'killed';
-        return;
-      }
     }
 
     const previousState = pot.state;

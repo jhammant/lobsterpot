@@ -13,9 +13,10 @@ export type ControlPlaneState =
   | 'rate_limited'
   | 'compacting'
   | 'restarting'
+  | 'escalating'
   | 'killed';
 
-export type WebhookEventType = 'pot.complete' | 'pot.error' | 'pot.stuck' | 'pot.milestone';
+export type WebhookEventType = 'pot.complete' | 'pot.error' | 'pot.stuck' | 'pot.milestone' | 'pot.escalated';
 
 export interface SmartLlmConfig {
   provider: SmartLlmProvider;
@@ -51,6 +52,13 @@ export interface LobsterPotDaemonConfig {
   llm: SmartLlmConfig;
   monitoring: DaemonMonitoringConfig;
   webhook: DaemonWebhookConfig;
+  backend?: 'docker' | 'tmux';
+  dockerImage?: string;
+  routing?: {
+    enabled: boolean;
+    preferLocal: boolean;
+    autoReview: boolean;
+  };
   agents?: Record<string, AgentConfig>;
 }
 
@@ -104,6 +112,7 @@ export interface PotInspection {
   milestone?: string;
   rawMatches: string[];
   blocked?: boolean;
+  stuck?: boolean;
 }
 
 export interface PotStatus {
@@ -124,6 +133,8 @@ export interface PotStatus {
   restarts: number;
   nudges: number;
   compactions: number;
+  escalations?: number;
+  escalatedFrom?: string;
   inspectionReason: string;
 }
 
@@ -153,6 +164,7 @@ export interface LocalTmuxBackend {
   createSession(session: string, cwd: string, command: string): void;
   killSession(session: string): void;
 }
+export { DockerSessionBackend } from './docker-backend.js';
 
 export interface WebhookClient {
   send(event: WebhookEventType, pot: PotStatus, details: Record<string, unknown>): Promise<void>;

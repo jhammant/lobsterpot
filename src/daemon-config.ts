@@ -21,7 +21,7 @@ export const DEFAULT_DAEMON_CONFIG: LobsterPotDaemonConfig = {
     idleThresholdMs: 5 * 60 * 1000,
     stuckThresholdMs: 12 * 60 * 1000,
     restartBackoffMs: 30 * 1000,
-    contextCompactThresholdPct: 80,
+    contextCompactThresholdPct: 60,
     autoNudge: true,
     autoCompact: true,
     autoRestart: true,

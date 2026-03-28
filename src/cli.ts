@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { PotManager, SSHError, TmuxError, AgentError } from './pot-manager.js';
+import { routeTask, planExecution, buildReviewPrompt } from './router.js';
 import { LobsterPotConfig } from './types.js';
 import { readFileSync, existsSync, unlinkSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -71,17 +72,30 @@ program
   .requiredOption('-n, --name <name>', 'Pot name')
   .requiredOption('-m, --machine <machine>', 'Target machine (from config)')
   .requiredOption('-r, --repo <repo>', 'Repository path on the machine')
-  .option('-a, --agent <agent>', 'Agent to use', 'opencode')
+  .option('-a, --agent <agent>', 'Agent to use')
   .requiredOption('-t, --task <task>', 'Task description')
+  .option('--auto', 'Use smart routing to select agent automatically')
   .option('--no-auto-nudge', 'Disable auto-nudge on stuck')
   .option('--no-auto-recover', 'Disable auto-recovery on crash')
   .action(async (opts) => {
     try {
+// Handle auto agent selection via smart router
+      let finalAgent = opts.agent;
+      if (opts.auto) {
+        const decision = routeTask(opts.task, { preferLocal: true });
+        finalAgent = decision.buildAgent;
+        console.log(`Routing decision for "${opts.task.substring(0, 50)}...":`);
+        console.log(`  Agent: ${decision.buildAgent}`);
+        if (decision.reviewAgent) {
+          console.log(`  Review: ${decision.reviewAgent} - ${decision.reasoning}`);
+        }
+      }
+      
       const pot = await manager.create({
         name: opts.name,
         machine: opts.machine,
         repo: opts.repo,
-        agent: opts.agent,
+        agent: finalAgent || 'opencode',
         task: opts.task,
         autoNudge: opts.autoNudge,
         autoRecover: opts.autoRecover,

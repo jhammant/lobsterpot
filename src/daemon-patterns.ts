@@ -52,10 +52,21 @@ const AGENT_PATTERNS: Record<string, AgentPatterns> = {
     milestone: [/git commit/i, /tests? (pass|passed)/i, /wrote .*file/i],
     promptWait: [/>\s*$/m, /ask for help/i],
   },
+  opencode: {
+    context: [/\bcontext[:\s]+(\d{1,3})%/i, /\b(\d{1,3})%\s+context\b/i],
+    compacted: [/compacted conversation/i, /summarized/i, /rolling summary/i],
+    rateLimit: [/rate limit/i, /quota/i, /too many requests/i],
+    approval: [/\[y\/n\]/i, /confirm/i, /approve/i],
+    error: [/error:/i, /failed/i, ...SHARED_ERROR_PATTERNS],
+    done: [/task complete/i, /completed/i, /finished/i],
+    milestone: [/created .*file/i, /updated .*file/i, /tests? (pass|passed)/i],
+    promptWait: [/>\s*$/m, /press enter/i],
+  },
 };
 
 function agentPatterns(agent: string): AgentPatterns {
   if (agent === 'aider-local' || agent === 'aider-openrouter') return AGENT_PATTERNS.aider;
+  if (agent === 'opencode') return AGENT_PATTERNS['opencode'];
   return AGENT_PATTERNS[agent] ?? AGENT_PATTERNS['claude-code'];
 }
 
@@ -225,6 +236,28 @@ export function analyzeTranscript(input: AnalyzeTranscriptInput): PotInspection 
       compacted,
       milestone: milestoneMatch,
       rawMatches,
+    };
+  }
+
+  const isBlocked = promptWait && input.idleMs >= input.monitoring.stuckThresholdMs / 2;
+
+  if (isBlocked) {
+    return {
+      state: 'blocked',
+      reason: `waiting for input for ${Math.round(input.idleMs / 1000)}s (blocked state)`,
+      doneLikely: false,
+      doneCertain: false,
+      waitingForInput: true,
+      approvalRequired: approvalMatch !== undefined || promptWait,
+      crashed: false,
+      errorDetected: false,
+      rateLimited: false,
+      contextUsagePct,
+      compactSuggested,
+      compacted,
+      milestone: milestoneMatch,
+      rawMatches,
+      blocked: true,
     };
   }
 
