@@ -323,4 +323,59 @@ daemon
     }
   });
 
+
+// === Simmer (Watchdog) ===
+const simmer = program.command("simmer").description("Keep pots simmering — watchdog that kicks stalled sessions");
+
+simmer
+  .command("start")
+  .description("Start the simmer watchdog (runs every 5 minutes)")
+  .option("--interval <ms>", "Check interval in ms", "300000")
+  .option("--ssh <target>", "SSH target (e.g., jhammant@ghost)")
+  .option("--no-approve", "Don't auto-approve permissions")
+  .option("--no-confirm", "Don't auto-confirm prompts") 
+  .option("--no-restart", "Don't auto-restart crashed sessions")
+  .option("--no-kick", "Don't auto-kick stalled prompts")
+  .action(async (opts) => {
+    const { Simmer } = await import("./simmer.js");
+    const s = new Simmer({
+      intervalMs: parseInt(opts.interval),
+      sshTarget: opts.ssh,
+      tmuxPath: process.env.TMUX_PATH || "/opt/homebrew/bin/tmux",
+      opencodePath: process.env.OPENCODE_PATH || "opencode",
+      autoApprove: opts.approve !== false,
+      autoConfirm: opts.confirm !== false,
+      autoRestart: opts.restart !== false,
+      autoKick: opts.kick !== false,
+      onLog: (entry) => {
+        const ts = new Date(entry.timestamp).toISOString().replace("T", " ").slice(0, 19);
+        const icon = { active: "🟢", kicked: "🔨", approved: "✅", confirmed: "👍", restarted: "🔄", idle: "💤", error: "❌" }[entry.action] || "❓";
+        console.log(`${ts} ${icon} ${entry.session}: ${entry.detail}`);
+      },
+    });
+    s.start();
+    console.log("🍳 Simmer started — keeping pots hot");
+    process.on("SIGINT", () => { s.stop(); process.exit(0); });
+    process.on("SIGTERM", () => { s.stop(); process.exit(0); });
+  });
+
+simmer
+  .command("check")
+  .description("Run a single simmer check (one-shot)")
+  .option("--ssh <target>", "SSH target")
+  .action(async (opts) => {
+    const { Simmer } = await import("./simmer.js");
+    const s = new Simmer({
+      intervalMs: 0,
+      sshTarget: opts.ssh,
+      tmuxPath: process.env.TMUX_PATH || "/opt/homebrew/bin/tmux",
+      opencodePath: process.env.OPENCODE_PATH || "opencode",
+      onLog: (entry) => {
+        const icon = { active: "🟢", kicked: "🔨", approved: "✅", confirmed: "👍", restarted: "🔄", idle: "💤", error: "❌" }[entry.action] || "❓";
+        console.log(`${icon} ${entry.session}: ${entry.detail}`);
+      },
+    });
+    const status = s.check();
+    console.log(`\n🍳 Simmer: ${status.active} active, ${status.kicked} kicked, ${status.idle} idle, ${status.errors} errors`);
+  });
 program.parse();
