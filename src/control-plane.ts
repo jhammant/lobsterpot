@@ -96,6 +96,32 @@ export class ControlPlaneDaemon {
     return this.pots.get(id);
   }
 
+
+  /**
+   * Ensure the repo has an .opencode.json with YOLO permissions
+   * but restricted to ~/dev/ for external directory access.
+   */
+  private ensureOpenCodeConfig(repoPath: string, agent: string): void {
+    if (!agent.startsWith("opencode")) return;
+    const configPath = join(repoPath, ".opencode.json");
+    if (existsSync(configPath)) return; // respect existing project config
+    const config = {
+      "$schema": "https://opencode.ai/config.json",
+      permission: {
+        "*": "allow",
+        external_directory: {
+          "~/dev/*": "allow",
+          "*": "deny",
+        },
+      },
+    };
+    try {
+      writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+    } catch {
+      // non-fatal — global config will apply
+    }
+  }
+
   async createPot(request: CreateLocalPotRequest): Promise<PotStatus> {
     const id = request.id ?? randomUUID().slice(0, 8);
     const session = `lp-${id}`;
@@ -103,6 +129,7 @@ export class ControlPlaneDaemon {
     const command = request.command ?? agentConfig.command;
     const now = this.now();
 
+    this.ensureOpenCodeConfig(request.repoPath, request.agent);
     this.tmux.createSession(session, request.repoPath, command);
 
     const pot: PotStatus = {
@@ -375,6 +402,7 @@ export class ControlPlaneDaemon {
     if (this.tmux.hasSession(meta.session)) {
       this.tmux.killSession(meta.session);
     }
+    this.ensureOpenCodeConfig(meta.repoPath, meta.agent);
     this.tmux.createSession(meta.session, meta.repoPath, meta.command);
     pot.restarts += 1;
     pot.state = 'restarting';
