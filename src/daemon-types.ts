@@ -6,6 +6,7 @@ export type ControlPlaneState =
   | 'running'
   | 'idle'
   | 'waiting'
+  | 'blocked'
   | 'stuck'
   | 'error'
   | 'done'
@@ -81,7 +82,8 @@ export interface PotSignal {
     | 'context_high'
     | 'prompt_waiting'
     | 'idle'
-    | 'session_missing';
+    | 'session_missing'
+    | 'blocked';
   message: string;
   timestamp: number;
 }
@@ -101,6 +103,7 @@ export interface PotInspection {
   compacted: boolean;
   milestone?: string;
   rawMatches: string[];
+  blocked?: boolean;
 }
 
 export interface PotStatus {
@@ -170,7 +173,7 @@ export interface PersistedDaemonState {
 }
 
 export function resolveLocalAgent(agent: string, config: LobsterPotDaemonConfig): AgentConfig {
-  return config.agents?.[agent] || DEFAULT_AGENTS[agent] || DEFAULT_AGENTS['claude-code'];
+  return config.agents?.[agent] || DEFAULT_AGENTS[agent] || DEFAULT_AGENTS['opencode'];
 }
 
 export function toLocalPotConfig(request: CreateLocalPotRequest): PotConfig {

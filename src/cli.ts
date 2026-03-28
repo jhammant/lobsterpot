@@ -71,7 +71,7 @@ program
   .requiredOption('-n, --name <name>', 'Pot name')
   .requiredOption('-m, --machine <machine>', 'Target machine (from config)')
   .requiredOption('-r, --repo <repo>', 'Repository path on the machine')
-  .option('-a, --agent <agent>', 'Agent to use', 'claude-code')
+  .option('-a, --agent <agent>', 'Agent to use', 'opencode')
   .requiredOption('-t, --task <task>', 'Task description')
   .option('--no-auto-nudge', 'Disable auto-nudge on stuck')
   .option('--no-auto-recover', 'Disable auto-recovery on crash')

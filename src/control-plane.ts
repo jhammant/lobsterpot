@@ -56,6 +56,12 @@ export class ControlPlaneDaemon {
     this.stateFile = join(config.stateDir, 'daemon-state.json');
   }
 
+  private isFreeAgent(agent: string): boolean {
+    return agent === 'opencode' || 
+           agent.includes('local') || 
+           agent.includes('openrouter');
+  }
+
   start(): void {
     this.loadState();
     this.discoverSessions();
@@ -179,7 +185,7 @@ export class ControlPlaneDaemon {
 
       const meta = this.metadata.get(id);
       const repoPath = meta?.repoPath ?? this.safeCurrentPath(session);
-      const agent = meta?.agent ?? 'claude-code';
+      const agent = meta?.agent ?? 'opencode';
       const now = this.now();
       this.pots.set(id, {
         id,
@@ -239,6 +245,16 @@ export class ControlPlaneDaemon {
     await this.applyInspection(pot, meta, inspection);
   }
 
+  private shouldAutoApprove(pot: PotStatus, inspection: PotInspection): boolean {
+    if (!inspection.approvalRequired) return false;
+    
+    const freeAgent = pot.agent === 'opencode' || 
+                      pot.agent.includes('local') || 
+                      inspection.rawMatches.some(m => m.toLowerCase().includes('[y/n]'));
+    
+    return freeAgent;
+  }
+
   private async applyInspection(
     pot: PotStatus,
     meta: PotRuntimeMetadata,
@@ -247,6 +263,16 @@ export class ControlPlaneDaemon {
     const now = this.now();
     pot.inspectionReason = inspection.reason;
     pot.contextUsagePct = inspection.contextUsagePct;
+    
+    if (inspection.blocked) {
+      pot.state = 'blocked';
+      this.recordSignal(pot, 'blocked', inspection.reason);
+      if (this.config.monitoring.autoNudge && this.canNudge(pot.id, now)) {
+        await this.nudgePot(pot.id);
+        pot.inspectionReason = `${inspection.reason}; auto-nudged from blocked state`;
+      }
+    }
+    
     if (inspection.milestone) {
       pot.milestone = inspection.milestone;
       this.recordSignal(pot, 'milestone', inspection.milestone);
@@ -263,6 +289,11 @@ export class ControlPlaneDaemon {
     if (inspection.approvalRequired) {
       this.recordAlert(pot, 'approval', inspection.reason);
       this.recordSignal(pot, 'approval_required', inspection.reason);
+      
+      if (this.shouldAutoApprove(pot, inspection) && this.config.monitoring.autoNudge && this.canNudge(pot.id, now)) {
+        await this.nudgePot(pot.id);
+        pot.inspectionReason = `${inspection.reason}; auto-approved (local agent)`;
+      }
     }
     if (inspection.rateLimited) {
       this.recordAlert(pot, 'rate_limit', inspection.reason);
@@ -273,7 +304,7 @@ export class ControlPlaneDaemon {
       this.recordSignal(pot, inspection.crashed ? 'session_missing' : 'error', inspection.reason);
     }
     if (inspection.compacted) {
-      this.recordSignal(pot, 'compacted', 'conversation compacted');
+      this.recordSignal(pot, 'compacted', inspection.milestone ? `rolling summary: ${inspection.milestone}` : 'conversation compacted');
     }
 
     let nextState = inspection.state;
@@ -282,7 +313,7 @@ export class ControlPlaneDaemon {
       const smartDecision = await this.llm.analyzePot(
         pot,
         pot.lastOutput,
-        'Decide whether this pot is truly done or only paused. Prefer "continue" unless the task is clearly complete.',
+        'Decide whether this pot is truly done or only paused. Prefer "done" unless the task is clearly complete.',
       );
       if (smartDecision.action === 'done') {
         nextState = 'done';
@@ -297,8 +328,14 @@ export class ControlPlaneDaemon {
     }
 
     if (inspection.compactSuggested && this.config.monitoring.autoCompact && this.canCompact(pot.id, now)) {
-      await this.compactPot(pot.id);
-      nextState = 'compacting';
+      const compactThreshold = this.isFreeAgent(pot.agent) 
+        ? Math.floor(this.config.monitoring.contextCompactThresholdPct * 0.75)
+        : this.config.monitoring.contextCompactThresholdPct;
+      
+      if (pot.contextUsagePct !== undefined && pot.contextUsagePct >= compactThreshold) {
+        await this.compactPot(pot.id);
+        nextState = 'compacting';
+      }
     }
 
     if (nextState === 'stuck' && this.config.monitoring.autoNudge && this.canNudge(pot.id, now)) {
@@ -322,6 +359,9 @@ export class ControlPlaneDaemon {
         await this.webhook.send('pot.complete', pot, { reason: pot.inspectionReason });
       } else if (nextState === 'stuck' && actionState?.lastWebhookState !== 'stuck') {
         this.touchAction(pot.id, { lastWebhookState: 'stuck' });
+        await this.webhook.send('pot.stuck', pot, { reason: pot.inspectionReason });
+      } else if (nextState === 'blocked' && actionState?.lastWebhookState !== 'blocked') {
+        this.touchAction(pot.id, { lastWebhookState: 'blocked' });
         await this.webhook.send('pot.stuck', pot, { reason: pot.inspectionReason });
       } else if (nextState === 'error' && actionState?.lastWebhookState !== 'error') {
         this.touchAction(pot.id, { lastWebhookState: 'error' });
@@ -424,9 +464,13 @@ export class ControlPlaneDaemon {
   }
 }
 
-export function compactCommandForAgent(agent: string): string {
-  if (agent === 'claude-code') return '/compact';
-  if (agent === 'codex') return '/compact';
+export function compactCommandForAgent(agent: string, rollingSummary?: boolean): string {
+  if (agent === 'claude-code') return rollingSummary ? '/summarize' : '/compact';
+  if (agent === 'codex') return rollingSummary ? '/summarize' : '/compact';
+  if (agent === 'opencode') return rollingSummary ? '/summarize' : '/compact';
   if (agent === 'aider-local' || agent === 'aider-openrouter' || agent === 'aider') return '/clear';
-  return 'Compact the working context. Preserve the current plan, completed work, open issues, and next steps.';
+  if (agent === 'goose') return rollingSummary ? '/summarize' : '/compact';
+  if (agent === 'kiro') return rollingSummary ? '/summarize' : '/compact';
+  if (agent === 'gemini-cli') return rollingSummary ? '/summarize' : '/clear';
+  return rollingSummary ? '/summarize' : '/compact';
 }
