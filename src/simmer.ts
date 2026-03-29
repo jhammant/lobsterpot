@@ -288,3 +288,29 @@ export class Simmer {
     this.config.onLog?.(entry);
   }
 }
+
+// === OpenCode Run Mode ===
+// Instead of TUI + tmux send-keys, use opencode run for reliable headless execution
+export async function runOpenCodeTask(
+  sshTarget: string | undefined,
+  cwd: string,
+  task: string,
+  opencodePath: string = 'opencode',
+): Promise<{ success: boolean; output: string }> {
+  const cmd = sshTarget
+    ? ['ssh', '-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes', sshTarget,
+       `cd ${cwd} && ${opencodePath} run \"${task.replace(/"/g, '\\"')}\"`]
+    : ['/bin/sh', '-c', `cd ${cwd} && ${opencodePath} run "${task}"`];
+
+  try {
+    const output = execFileSync(cmd[0], cmd.slice(1), {
+      encoding: 'utf-8',
+      timeout: 600000, // 10 min max per task
+      stdio: ['ignore', 'pipe', 'pipe'],
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return { success: true, output: output.trimEnd() };
+  } catch (e: any) {
+    return { success: false, output: e.stderr || e.message || String(e) };
+  }
+}
